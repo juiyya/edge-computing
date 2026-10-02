@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Controle de LED via MQTT — Edge Computing</title>
+<!--
+  Painel web para acionar o LED do ESP32 pelo broker HiveMQ (broker.hivemq.com).
+  Compatível com o sketch da aula:
+    - publica comandos em  fiap/edge/azevedofm/led/cmd   ("1"/"0")
+    - assina o status em    fiap/edge/azevedofm/led/status (retained)
+
+  Como o navegador não fala MQTT/TCP (porta 1883), usamos MQTT sobre WebSocket:
+    - página http:// ou file://  ->  ws://broker.hivemq.com:8000/mqtt
+    - página https://            ->  wss://broker.hivemq.com:8884/mqtt   (obrigatório)
+  A URL é detectada automaticamente e pode ser editada em "Configurações".
+
+  Para servir: qualquer servidor estático. Ex.:  python -m http.server 8080
+  (Também abre direto com duplo clique, via file://.)
+-->
+<style>
+  :root{
+    --bg:#0E0E13; --card:#17171D; --card2:#1E1E26; --line:#33333D;
+    --txt:#F1F1F4; --sub:#A8A8B3; --mute:#71717C;
+    --mag:#ED1165; --mag-d:#B60C4C;
+    --on:#FFC24B; --on-glow:#ff9d00; --ok:#37C978; --off:#5A5A66; --err:#F0506E;
+    --code:#0A0A0E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:Calibri,"Segoe UI",Arial,system-ui,sans-serif;
+    line-height:1.5; min-height:100vh;
+    padding:24px 16px 40px;
+  }
+  .wrap{max-width:760px;margin:0 auto}
+
+  header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  .brand{display:flex;flex-direction:column;gap:4px}
+  .kicker{font-size:12px;font-weight:700;letter-spacing:2px;color:var(--mag);text-transform:uppercase}
+  h1{font-size:26px;margin:0;font-weight:700;letter-spacing:-.2px}
+  .sub{color:var(--sub);font-size:14px}
+
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;
+    background:var(--card);border:1px solid var(--line);font-size:13px;font-weight:600;white-space:nowrap}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--off);box-shadow:0 0 0 0 rgba(0,0,0,0)}
+  .pill.ok .dot{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+  .pill.err .dot{background:var(--err);box-shadow:0 0 10px var(--err)}
+  .pill.wait .dot{background:var(--on);box-shadow:0 0 10px var(--on);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:18px}
+
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px 0 6px}
+  .led{
+    width:120px;height:120px;border-radius:50%;
+    background:radial-gradient(circle at 38% 34%, #2a2a33, #14141a 70%);
+    border:2px solid #2c2c36;transition:all .28s ease;position:relative
+  }
+  .led.on{
+    background:radial-gradient(circle at 38% 34%, #ffe6a6, var(--on) 55%, var(--on-glow) 100%);
+    border-color:#ffd071;
+    box-shadow:0 0 24px 6px rgba(255,157,0,.55), 0 0 60px 18px rgba(255,157,0,.28);
+  }
+  .ledlabel{font-size:15px;color:var(--sub)}
+  .ledstate{font-weight:700}
+  .ledstate.on{color:var(--on)}
+  .ledstate.off{color:var(--sub)}
+
+  .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px}
+  @media (max-width:520px){.controls{grid-template-columns:1fr}}
+  button{font-family:inherit;font-size:15px;font-weight:700;border-radius:11px;padding:14px 12px;
+    border:1px solid var(--line);background:var(--card2);color:var(--txt);cursor:pointer;transition:all .15s ease}
+  button:hover:not(:disabled){border-color:#4a4a56;transform:translateY(-1px)}
+  button:active:not(:disabled){transform:translateY(0)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.on{background:var(--mag);border-color:var(--mag);color:#fff}
+  button.on:hover:not(:disabled){background:var(--mag-d);border-color:var(--mag-d)}
+  button.ghost{background:transparent}
+
+  .hint{font-size:12.5px;color:var(--mute);margin-top:14px;text-align:center}
+
+  details{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:18px;overflow:hidden}
+  summary{cursor:pointer;padding:14px 18px;font-weight:700;font-size:14px;list-style:none;display:flex;align-items:center;gap:10px}
+  summary::-webkit-details-marker{display:none}
+  summary .chev{color:var(--mag);transition:transform .2s}
+  details[open] summary .chev{transform:rotate(90deg)}
+  .cfg{padding:4px 18px 20px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;font-weight:700;color:var(--sub);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+  .field input{width:100%;background:var(--code);border:1px solid var(--line);border-radius:9px;
+    color:var(--txt);font-family:"Consolas","Courier New",monospace;font-size:13px;padding:10px 12px}
+  .field input:focus{outline:none;border-color:var(--mag)}
+  .cfgrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .cfgrow button{flex:1;min-width:130px;font-size:14px;padding:11px}
+
+  .logwrap{margin-top:2px}
+  .logtitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .logtitle h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--sub);margin:0;font-weight:700}
+  .clear{font-size:12px;color:var(--mute);background:none;border:none;padding:4px 6px;cursor:pointer}
+  .clear:hover{color:var(--txt)}
+  #log{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
+    height:190px;overflow-y:auto;font-family:"Consolas","Courier New",monospace;font-size:12.5px;line-height:1.7}
+  .l{white-space:pre-wrap;word-break:break-word}
+  .l .t{color:var(--mute)}
+  .l.tx .a{color:var(--mag)}
+  .l.rx .a{color:var(--ok)}
+  .l.sys .a{color:var(--sub)}
+  .l.er .a{color:var(--err)}
+
+  footer{color:var(--mute);font-size:12px;text-align:center;margin-top:24px}
+  code{background:var(--card2);padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <span class="kicker">Edge Computing · MQTT</span>
+      <h1>Controle de LED via HiveMQ</h1>
+      <span class="sub">Aciona o LED do ESP32 publicando no broker público — e reflete o estado real pelo tópico de status.</span>
+    </div>
+    <span id="statusPill" class="pill"><span class="dot"></span><span id="statusText">Desconectado</span></span>
+  </header>
+
+  <div class="card">
+    <div class="stage">
+      <div id="led" class="led"></div>
+      <div class="ledlabel">LED: <span id="ledState" class="ledstate off">—</span></div>
+    </div>
+
+    <div class="controls">
+      <button id="btnOn"  class="on"    disabled>Ligar</button>
+      <button id="btnOff" class="ghost" disabled>Desligar</button>
+      <button id="btnTgl" class="ghost" disabled>Alternar</button>
+    </div>
+
+    <p class="hint">O botão publica um <b>comando</b>; o LED acima só acende quando o ESP32 confirma pelo tópico de <b>status</b>.</p>
+  </div>
+
+  <details>
+    <summary><span class="chev">▶</span> Configurações da conexão</summary>
+    <div class="cfg">
+      <div class="field">
+        <label>Broker (MQTT sobre WebSocket)</label>
+        <input id="cfgUrl" spellcheck="false">
+      </div>
+      <div class="field">
+        <label>Tópico de comando (publicar)</label>
+        <input id="cfgCmd" spellcheck="false" value="fiap/edge/azevedofm/led/cmd">
+      </div>
+      <div class="field">
+        <label>Tópico de status (assinar)</label>
+        <input id="cfgStatus" spellcheck="false" value="fiap/edge/azevedofm/led/status">
+      </div>
+      <div class="cfgrow">
+        <button id="btnConnect" class="on">Conectar</button>
+        <button id="btnDisconnect" class="ghost" disabled>Desconectar</button>
+      </div>
+    </div>
+  </details>
+
+  <div class="logwrap">
+    <div class="logtitle">
+      <h2>Console</h2>
+      <button class="clear" id="btnClear">limpar</button>
+    </div>
+    <div id="log"></div>
+  </div>
+
+  <footer>
+    Broker público <code>broker.hivemq.com</code> · use um tópico exclusivo (troque <code>azevedofm</code>) para evitar cruzar mensagens com outras turmas.
+  </footer>
+
+</div>
+
+<script>
+/* ---------- carregamento do mqtt.js com fallback entre CDNs ---------- */
+(function loadMqtt(){
+  var cdns = [
+    "https://unpkg.com/mqtt@5/dist/mqtt.min.js",
+    "https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"
+  ];
+  var i = 0;
+  (function next(){
+    if (i >= cdns.length){ window.__mqttFail = true; if(window.__onMqttState) window.__onMqttState(); return; }
+    var s = document.createElement("script");
+    s.src = cdns[i++];
+    s.onload = function(){ if(window.__onMqttReady) window.__onMqttReady(); };
+    s.onerror = next;
+    document.head.appendChild(s);
+  })();
+})();
+
+/* ---------- app ---------- */
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+
+  var el = {
+    pill:$("statusPill"), pillTxt:$("statusText"),
+    led:$("led"), ledState:$("ledState"),
+    btnOn:$("btnOn"), btnOff:$("btnOff"), btnTgl:$("btnTgl"),
+    url:$("cfgUrl"), cmd:$("cfgCmd"), status:$("cfgStatus"),
+    connect:$("btnConnect"), disconnect:$("btnDisconnect"),
+    log:$("log"), clear:$("btnClear")
+  };
+
+  var client = null;
+  var lastState = null;          // true=aceso, false=apagado, null=desconhecido
+  var subscribedTopic = null;
+
+  function defaultUrl(){
+    return location.protocol === "https:"
+      ? "wss://broker.hivemq.com:8884/mqtt"
+      : "ws://broker.hivemq.com:8000/mqtt";
+  }
+  el.url.value = defaultUrl();
+
+  /* ---- log ---- */
+  function log(kind, arrow, msg){
+    var now = new Date().toLocaleTimeString("pt-BR");
+    var d = document.createElement("div");
+    d.className = "l " + kind;
+    d.innerHTML = '<span class="t">' + now + '</span>  <span class="a">' + arrow + '</span> '
+                + msg.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+    el.log.appendChild(d);
+    el.log.scrollTop = el.log.scrollHeight;
+  }
+
+  /* ---- status do broker ---- */
+  function setPill(cls, txt){
+    el.pill.className = "pill" + (cls ? " " + cls : "");
+    el.pillTxt.textContent = txt;
+  }
+
+  /* ---- estado do LED (vindo do tópico status) ---- */
+  function renderLed(state){
+    lastState = state;
+    if (state === true){
+      el.led.classList.add("on");
+      el.ledState.textContent = "ACESO";
+      el.ledState.className = "ledstate on";
+    } else if (state === false){
+      el.led.classList.remove("on");
+      el.ledState.textContent = "APAGADO";
+      el.ledState.className = "ledstate off";
+    } else {
+      el.led.classList.remove("on");
+      el.ledState.textContent = "—";
+      el.ledState.className = "ledstate off";
+    }
+  }
+
+  function setControls(connected){
+    el.btnOn.disabled = !connected;
+    el.btnOff.disabled = !connected;
+    el.btnTgl.disabled = !connected;
+    el.connect.disabled = connected;
+    el.disconnect.disabled = !connected;
+    el.url.disabled = connected;
+    el.cmd.disabled = connected;
+    el.status.disabled = connected;
+  }
+
+  function parseState(payload){
+    var v = (payload || "").toString().trim().toLowerCase();
+    if (v === "1" || v === "on" || v === "true")  return true;
+    if (v === "0" || v === "off" || v === "false") return false;
+    return null;
+  }
+
+  /* ---- publicar comando ---- */
+  function publishCmd(value){
+    if (!client || !client.connected){ log("er","✗","sem conexão com o broker"); return; }
+    var topic = el.cmd.value.trim();
+    client.publish(topic, value, { qos:0, retain:false });
+    log("tx","→","cmd  " + topic + "  =  " + value);
+  }
+
+  el.btnOn.onclick  = function(){ publishCmd("1"); };
+  el.btnOff.onclick = function(){ publishCmd("0"); };
+  el.btnTgl.onclick = function(){ publishCmd(lastState === true ? "0" : "1"); };
+
+  /* ---- conectar / desconectar ---- */
+  function connect(){
+    if (window.__mqttFail || typeof mqtt === "undefined"){
+      setPill("err","Biblioteca MQTT não carregou");
+      log("er","✗","não foi possível carregar mqtt.js (verifique a internet/CDN)");
+      return;
+    }
+    var url = el.url.value.trim();
+    var clientId = "web-fiap-" + Math.random().toString(16).slice(2, 8);
+
+    setPill("wait","Conectando…");
+    setControls(false); el.connect.disabled = true;
+    log("sys","•","conectando em " + url + "  (id " + clientId + ")");
+
+    try{
+      client = mqtt.connect(url, {
+        clientId: clientId,
+        keepalive: 30,
+        clean: true,
+        reconnectPeriod: 3000,
+        connectTimeout: 8000
+      });
+    }catch(e){
+      setPill("err","Falha ao conectar");
+      log("er","✗", (e && e.message) ? e.message : String(e));
+      setControls(false);
+      return;
+    }
+
+    client.on("connect", function(){
+      setPill("ok","Conectado");
+      setControls(true);
+      subscribedTopic = el.status.value.trim();
+      client.subscribe(subscribedTopic, { qos:0 }, function(err){
+        if (err){ log("er","✗","falha ao assinar " + subscribedTopic); }
+        else    { log("sys","•","assinado: " + subscribedTopic + " (aguardando status retido…)"); }
+      });
+    });
+
+    client.on("message", function(topic, payload){
+      var txt = payload.toString();
+      log("rx","←","status  " + topic + "  =  " + txt);
+      var st = parseState(txt);
+      if (st !== null) renderLed(st);
+    });
+
+    client.on("reconnect", function(){ setPill("wait","Reconectando…"); });
+    client.on("close",     function(){ if(client){ setPill("", "Desconectado"); } });
+    client.on("offline",   function(){ setPill("err","Offline"); });
+    client.on("error",     function(err){
+      log("er","✗", (err && err.message) ? err.message : String(err));
+      setPill("err","Erro de conexão");
+    });
+  }
+
+  function disconnect(){
+    if (client){
+      try{ client.end(true); }catch(e){}
+      client = null;
+    }
+    setControls(false);
+    setPill("", "Desconectado");
+    renderLed(null);
+    log("sys","•","desconectado");
+  }
+
+  el.connect.onclick = connect;
+  el.disconnect.onclick = disconnect;
+  el.clear.onclick = function(){ el.log.innerHTML = ""; };
+
+  /* ---- estado inicial da UI ---- */
+  window.__onMqttReady = function(){ log("sys","•","mqtt.js carregado — pronto para conectar"); };
+  window.__onMqttState = function(){
+    setPill("err","Biblioteca MQTT indisponível");
+    log("er","✗","mqtt.js não pôde ser carregado de nenhum CDN");
+  };
+
+  setControls(false);
+  setPill("", "Desconectado");
+  renderLed(null);
+  log("sys","•","Clique em “Conectar” para falar com o broker.");
+
+  /* conecta automaticamente ao abrir (comente se preferir manual) */
+  window.addEventListener("load", function(){
+    setTimeout(function(){ if (typeof mqtt !== "undefined") connect(); }, 400);
+  });
+})();
+</script>
+</body>
+</html>

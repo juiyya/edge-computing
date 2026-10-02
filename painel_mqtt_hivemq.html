@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Painel IoT — Edge Computing (HiveMQ)</title>
+<!-- MQTT.js (cliente MQTT sobre WebSocket) -->
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root{
+    --bg:#0E0E13; --card:#17171D; --card2:#1C1C24; --bord:#2C2C36;
+    --mag:#ED1165; --mag-d:#A60B47; --txt:#E8E8F0; --sub:#9A9AA5; --mute:#6E6E78;
+    --cyan:#6EC9E6; --green:#35D65E; --red:#FF4D5E; --amber:#F5B23B;
+    --font:'Segoe UI',Calibri,system-ui,-apple-system,Arial,sans-serif;
+    --mono:'Consolas','Courier New',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font);
+       line-height:1.5;padding:24px 16px 48px;}
+  .wrap{max-width:1040px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .logo{width:14px;height:14px;background:var(--mag);border-radius:3px;flex:none}
+  h1{font-size:22px;margin:0;font-weight:700;letter-spacing:.2px}
+  .kicker{color:var(--mag);font-weight:700;font-size:12px;letter-spacing:2px;text-transform:uppercase}
+  .sub{color:var(--sub);font-size:13px;margin:2px 0 20px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:14px;padding:18px}
+  .card h2{font-size:15px;margin:0 0 14px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .card h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--mag)}
+  label{display:block;font-size:12px;color:var(--sub);margin:0 0 4px}
+  input{width:100%;background:var(--card2);border:1px solid var(--bord);border-radius:8px;
+        color:var(--txt);padding:9px 10px;font-size:13px;font-family:var(--mono)}
+  input:focus{outline:none;border-color:var(--mag)}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>div{flex:1;min-width:120px}
+  .btn{border:none;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:600;
+       cursor:pointer;font-family:var(--font);transition:transform .05s,opacity .2s}
+  .btn:active{transform:translateY(1px)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-mag{background:var(--mag);color:#fff}
+  .btn-ghost{background:transparent;color:var(--txt);border:1px solid var(--bord)}
+  .btn-on{background:var(--green);color:#06260f}
+  .btn-off{background:#2A2A33;color:var(--txt);border:1px solid var(--bord)}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;
+        padding:5px 11px;border-radius:999px;background:var(--card2);border:1px solid var(--bord)}
+  .pill .ind{width:9px;height:9px;border-radius:50%;background:var(--mute)}
+  .pill.ok .ind{background:var(--green);box-shadow:0 0 8px var(--green)}
+  .pill.bad .ind{background:var(--red)}
+  .pill.wait .ind{background:var(--amber)}
+  /* LED */
+  .led-box{display:flex;align-items:center;gap:22px}
+  .led{width:92px;height:92px;border-radius:50%;flex:none;background:#2A2A33;
+       border:3px solid var(--bord);transition:all .25s;position:relative}
+  .led.on{background:radial-gradient(circle at 38% 32%,#fff,#ED1165 60%,#8c0a3e);
+          border-color:#ED1165;box-shadow:0 0 34px 6px rgba(237,17,101,.6)}
+  .led-state{font-size:28px;font-weight:700}
+  .led-state small{display:block;font-size:12px;color:var(--sub);font-weight:400;margin-top:2px}
+  .ctrl{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  .ctrl .btn{flex:1;min-width:92px}
+  /* Telemetria */
+  .stats{display:flex;gap:26px}
+  .stat .big{font-size:46px;font-weight:700;line-height:1}
+  .stat .big small{font-size:18px;color:var(--sub);font-weight:400;margin-left:3px}
+  .stat.temp .big{color:var(--cyan)}
+  .stat.umid .big{color:var(--amber)}
+  .stat .lbl{font-size:12px;color:var(--sub);margin-top:4px}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--sub);margin-top:10px}
+  .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .legend .lt i{background:var(--cyan)} .legend .lu i{background:var(--amber)}
+  .temp-meta{font-size:12px;color:var(--sub);margin-top:8px}
+  .temp-meta b{color:var(--txt);font-weight:600}
+  canvas{width:100%;height:130px;margin-top:12px;display:block}
+  /* Log */
+  .log{background:#0A0A0F;border:1px solid var(--bord);border-radius:10px;padding:12px;
+       height:180px;overflow:auto;font-family:var(--mono);font-size:12px;color:#CFCFD8}
+  .log div{padding:1px 0;white-space:pre-wrap;word-break:break-word}
+  .log .t{color:var(--mute)}
+  .log .in{color:var(--cyan)} .log .out{color:var(--mag)}
+  .log .sys{color:var(--amber)} .log .err{color:var(--red)}
+  .note{font-size:11.5px;color:var(--mute);margin-top:10px;line-height:1.5}
+  .foot{margin-top:26px;font-size:12px;color:var(--mute);text-align:center}
+  .full{grid-column:1 / -1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="logo"></span>
+    <div>
+      <div class="kicker">Edge Computing · FIAP</div>
+      <h1>Painel IoT — Controle de LED e Telemetria via MQTT</h1>
+    </div>
+  </header>
+  <p class="sub">Integração com o broker público HiveMQ sobre WebSocket. Aciona o LED do ESP32 e recebe a telemetria de temperatura e umidade em tempo real.</p>
+
+  <div class="grid">
+    <!-- CONEXÃO -->
+    <div class="card full">
+      <h2><span class="dot"></span>Conexão MQTT
+        <span id="statusPill" class="pill bad" style="margin-left:auto"><span class="ind"></span><span id="statusTxt">Desconectado</span></span>
+      </h2>
+      <div class="row">
+        <div style="flex:2"><label>Broker (host)</label><input id="host" value="broker.hivemq.com"></div>
+        <div><label>Porta</label><input id="port" value="8884"></div>
+        <div><label>Caminho (path)</label><input id="path" value="/mqtt"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div style="flex:2"><label>Tópico base</label><input id="base" value="fiap/edge/yamazaki"></div>
+        <div style="flex:2"><label>Client ID</label><input id="cid" value=""></div>
+      </div>
+      <div class="row" style="margin-top:16px;align-items:center">
+        <button id="btnConn" class="btn btn-mag" style="flex:0 0 auto">Conectar</button>
+        <button id="btnDisc" class="btn btn-ghost" style="flex:0 0 auto" disabled>Desconectar</button>
+        <div style="flex:1"></div>
+      </div>
+      <p class="note">
+        Páginas servidas por <b>https</b> exigem <b>wss</b> (porta 8884). Em <b>http</b>/localhost, use <b>ws</b> (porta 8000).
+        A página ajusta a porta sozinha ao carregar, mas você pode alterá-la aqui.
+      </p>
+    </div>
+
+    <!-- LED -->
+    <div class="card">
+      <h2><span class="dot"></span>Controle do LED</h2>
+      <div class="led-box">
+        <div id="led" class="led"></div>
+        <div>
+          <div class="led-state"><span id="ledState">—</span><small id="ledSrc">aguardando status do ESP32</small></div>
+        </div>
+      </div>
+      <div class="ctrl">
+        <button id="btnOn"  class="btn btn-on"  disabled>Ligar</button>
+        <button id="btnOff" class="btn btn-off" disabled>Desligar</button>
+        <button id="btnTgl" class="btn btn-ghost" disabled>Alternar</button>
+      </div>
+      <p class="note">Publica em <code id="tCmd">…/led/cmd</code> · confirma em <code id="tStatus">…/led/status</code></p>
+    </div>
+
+    <!-- TELEMETRIA: TEMPERATURA + UMIDADE -->
+    <div class="card">
+      <h2><span class="dot"></span>Temperatura e Umidade</h2>
+      <div class="stats">
+        <div class="stat temp"><div class="big"><span id="tempVal">--.-</span><small>°C</small></div><div class="lbl">temperatura</div></div>
+        <div class="stat umid"><div class="big"><span id="umidVal">--.-</span><small>%</small></div><div class="lbl">umidade</div></div>
+      </div>
+      <div class="temp-meta">atualizado <b id="tWhen">—</b></div>
+      <canvas id="chart" width="600" height="260"></canvas>
+      <div class="legend">
+        <span class="lt"><i></i>temperatura (°C)</span>
+        <span class="lu"><i></i>umidade (%)</span>
+      </div>
+      <p class="note">Recebe de <code id="tTemp">…/temp</code> e <code id="tUmid">…/umid</code></p>
+    </div>
+
+    <!-- LOG -->
+    <div class="card full">
+      <h2><span class="dot"></span>Console de mensagens</h2>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <p class="foot">Edge Computing · Prof. Flavio M. Azevedo — broker público HiveMQ (uso educacional; tópicos são públicos, não trafegue dados sensíveis).</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var client = null, connected = false;
+  var temps = [], umids = [], TMAX_PTS = 60;
+
+  // --- tópicos derivados do base ---
+  function topics(){
+    var b = $("base").value.replace(/\/+$/,"");
+    return { cmd:b+"/led/cmd", status:b+"/led/status", temp:b+"/temp", umid:b+"/umid" };
+  }
+  function refreshTopicLabels(){
+    var t = topics();
+    $("tCmd").textContent = t.cmd;
+    $("tStatus").textContent = t.status;
+    $("tTemp").textContent = t.temp;
+    $("tUmid").textContent = t.umid;
+  }
+
+  // --- log ---
+  function log(kind, msg){
+    var box = $("log");
+    var now = new Date().toLocaleTimeString("pt-BR");
+    var line = document.createElement("div");
+    line.innerHTML = '<span class="t">['+now+']</span> <span class="'+kind+'">'+msg+'</span>';
+    box.appendChild(line);
+    box.scrollTop = box.scrollHeight;
+    if(box.childNodes.length > 300) box.removeChild(box.firstChild);
+  }
+
+  // --- status pill ---
+  function setStatus(state, txt){
+    $("statusPill").className = "pill " + state;   // ok | bad | wait
+    $("statusTxt").textContent = txt;
+  }
+
+  // --- LED UI ---
+  function setLed(on, src){
+    $("led").classList.toggle("on", !!on);
+    $("ledState").textContent = on ? "LIGADO" : "DESLIGADO";
+    $("ledSrc").textContent = src || "";
+  }
+
+  // --- telemetria ---
+  function stampNow(){ $("tWhen").textContent = new Date().toLocaleTimeString("pt-BR"); }
+  function pushTemp(v){
+    if(isNaN(v)) return;
+    temps.push(v); if(temps.length > TMAX_PTS) temps.shift();
+    $("tempVal").textContent = v.toFixed(1);
+    stampNow(); drawChart();
+  }
+  function pushUmid(v){
+    if(isNaN(v)) return;
+    umids.push(v); if(umids.length > TMAX_PTS) umids.shift();
+    $("umidVal").textContent = v.toFixed(1);
+    stampNow(); drawChart();
+  }
+
+  // --- gráfico com eixo duplo (temp à esquerda, umidade à direita) ---
+  function drawSeries(g, arr, color, lo, hi, geo){
+    if(arr.length < 2) return;
+    var rng = (hi-lo) || 1;
+    var xi = function(i){ return geo.pad + (geo.w-2*geo.pad) * (i/(arr.length-1)); };
+    var yi = function(v){ return geo.pad + (geo.h-2*geo.pad) * (1-(v-lo)/rng); };
+    g.beginPath();
+    arr.forEach(function(v,i){ i? g.lineTo(xi(i),yi(v)) : g.moveTo(xi(i),yi(v)); });
+    g.strokeStyle = color; g.lineWidth = 2; g.lineJoin = "round"; g.stroke();
+    var li = arr.length-1;
+    g.beginPath(); g.arc(xi(li), yi(arr[li]), 3.5, 0, Math.PI*2); g.fillStyle = color; g.fill();
+  }
+  function rangeOf(arr, pad){
+    var lo = Math.min.apply(null,arr), hi = Math.max.apply(null,arr);
+    if(hi-lo < (pad||1)){ hi += (pad||1)/2; lo -= (pad||1)/2; }
+    return [lo,hi];
+  }
+  function drawChart(){
+    var c = $("chart"), dpr = window.devicePixelRatio || 1;
+    var w = c.clientWidth, h = c.clientHeight;
+    c.width = w*dpr; c.height = h*dpr;
+    var g = c.getContext("2d"); g.scale(dpr,dpr);
+    g.clearRect(0,0,w,h);
+    if(temps.length < 2 && umids.length < 2){
+      g.fillStyle = "#6E6E78"; g.font = "13px sans-serif";
+      g.fillText("aguardando leituras…", 10, h/2);
+      return;
+    }
+    var geo = { w:w, h:h, pad:26 };
+    // grade
+    g.strokeStyle = "#24242C"; g.lineWidth = 1;
+    for(var k=0;k<=3;k++){ var yy = geo.pad + (h-2*geo.pad)*k/3;
+      g.beginPath(); g.moveTo(geo.pad,yy); g.lineTo(w-geo.pad,yy); g.stroke(); }
+    // temperatura (eixo esquerdo, cyan)
+    if(temps.length >= 2){
+      var rt = rangeOf(temps,1);
+      drawSeries(g, temps, "#6EC9E6", rt[0], rt[1], geo);
+      g.fillStyle = "#6EC9E6"; g.font = "10px monospace";
+      g.textAlign = "left";
+      g.fillText(rt[1].toFixed(1)+"°", 2, geo.pad+3);
+      g.fillText(rt[0].toFixed(1)+"°", 2, h-geo.pad+3);
+    }
+    // umidade (eixo direito, amber)
+    if(umids.length >= 2){
+      var ru = rangeOf(umids,2);
+      drawSeries(g, umids, "#F5B23B", ru[0], ru[1], geo);
+      g.fillStyle = "#F5B23B"; g.font = "10px monospace";
+      g.textAlign = "right";
+      g.fillText(ru[1].toFixed(0)+"%", w-2, geo.pad+3);
+      g.fillText(ru[0].toFixed(0)+"%", w-2, h-geo.pad+3);
+      g.textAlign = "left";
+    }
+  }
+  window.addEventListener("resize", drawChart);
+
+  // --- controles LED ---
+  function publishCmd(val){
+    if(!connected) return;
+    var t = topics();
+    client.publish(t.cmd, val, { qos:0, retain:false });
+    log("out", "→ "+t.cmd+" : "+val);
+  }
+  $("btnOn").onclick  = function(){ publishCmd("1"); };
+  $("btnOff").onclick = function(){ publishCmd("0"); };
+  $("btnTgl").onclick = function(){
+    var on = $("led").classList.contains("on");
+    publishCmd(on ? "0" : "1");
+  };
+  function enableControls(on){
+    ["btnOn","btnOff","btnTgl"].forEach(function(id){ $(id).disabled = !on; });
+  }
+
+  // --- conexão ---
+  function connect(){
+    var host = $("host").value.trim();
+    var port = $("port").value.trim();
+    var path = $("path").value.trim();
+    var proto = (location.protocol === "https:") ? "wss" : "ws";
+    var url = proto + "://" + host + ":" + port + path;
+    var cid = $("cid").value.trim() || ("painel-" + Math.random().toString(16).slice(2,8));
+    $("cid").value = cid;
+
+    setStatus("wait","Conectando…");
+    log("sys", "Conectando a "+url+" (clientId="+cid+")");
+
+    try{
+      client = mqtt.connect(url, {
+        clientId: cid, clean: true, connectTimeout: 6000, reconnectPeriod: 3000
+      });
+    }catch(e){ log("err","Falha ao iniciar: "+e.message); setStatus("bad","Erro"); return; }
+
+    client.on("connect", function(){
+      connected = true;
+      setStatus("ok","Conectado");
+      log("sys","Conectado ao broker.");
+      var t = topics();
+      client.subscribe([t.status, t.temp, t.umid], function(err){
+        if(err){ log("err","Erro ao assinar: "+err.message); }
+        else { log("sys","Assinado: "+t.status+" , "+t.temp+" , "+t.umid); }
+      });
+      enableControls(true);
+      $("btnConn").disabled = true; $("btnDisc").disabled = false;
+    });
+
+    client.on("message", function(topic, payload){
+      var msg = payload.toString();
+      var t = topics();
+      if(topic === t.status){
+        var on = (msg === "1" || msg.toLowerCase() === "on");
+        setLed(on, "confirmado pelo ESP32");
+        log("in","← "+topic+" : "+msg);
+      } else if(topic === t.temp){
+        pushTemp(parseFloat(msg.replace(",",".")));
+        log("in","← "+topic+" : "+msg);
+      } else if(topic === t.umid){
+        pushUmid(parseFloat(msg.replace(",",".")));
+        log("in","← "+topic+" : "+msg);
+      } else {
+        log("in","← "+topic+" : "+msg);
+      }
+    });
+
+    client.on("reconnect", function(){ setStatus("wait","Reconectando…"); });
+    client.on("error", function(e){ log("err","Erro: "+(e&&e.message?e.message:e)); setStatus("bad","Erro"); });
+    client.on("close", function(){
+      if(connected){ log("sys","Conexão encerrada."); }
+      connected = false; setStatus("bad","Desconectado"); enableControls(false);
+      $("btnConn").disabled = false; $("btnDisc").disabled = true;
+    });
+  }
+  function disconnect(){
+    if(client){ client.end(true); }
+    connected = false; setStatus("bad","Desconectado"); enableControls(false);
+    $("btnConn").disabled = false; $("btnDisc").disabled = true;
+    log("sys","Desconectado pelo usuário.");
+  }
+  $("btnConn").onclick = connect;
+  $("btnDisc").onclick = disconnect;
+  $("base").addEventListener("input", refreshTopicLabels);
+
+  // --- init ---
+  if(location.protocol === "https:"){ $("port").value = "8884"; }
+  else { $("port").value = "8000"; }
+  $("cid").value = "painel-" + Math.random().toString(16).slice(2,8);
+  refreshTopicLabels();
+  setLed(false,"aguardando status do ESP32");
+  drawChart();
+  if(typeof mqtt === "undefined"){
+    log("err","Biblioteca MQTT não carregou. Verifique o acesso à internet (CDN unpkg).");
+  } else {
+    log("sys","Pronto. Clique em “Conectar”.");
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+{
+    "version": 1,
+    "author": "FIAP - Edge Computing",
+    "editor": "wokwi",
+    "parts": [
+        {
+            "type": "wokwi-esp32-devkit-v1",
+            "id": "esp",
+            "top": 14.3,
+            "left": -91.4,
+            "attrs": {}
+        },
+        {
+            "type": "wokwi-pushbutton",
+            "id": "btn1",
+            "top": -56.6,
+            "left": 288.2,
+            "rotate": 180,
+            "attrs": {
+                "color": "green",
+                "label": "LED"
+            }
+        },
+        {
+            "type": "wokwi-led",
+            "id": "led1",
+            "top": 27.6,
+            "left": 160.2,
+            "rotate": 90,
+            "attrs": {
+                "color": "red"
+            }
+        },
+        {
+            "type": "wokwi-resistor",
+            "id": "r1",
+            "top": 71.15,
+            "left": 76.8,
+            "attrs": {
+                "value": "220"
+            }
+        },
+        {
+            "type": "wokwi-dht22",
+            "id": "dht1",
+            "top": 218.7,
+            "left": 102,
+            "rotate": 180,
+            "attrs": {}
+        }
+    ],
+    "connections": [
+        [
+            "esp:TX0",
+            "$serialMonitor:RX",
+            "",
+            []
+        ],
+        [
+            "esp:RX0",
+            "$serialMonitor:TX",
+            "",
+            []
+        ],
+        [
+            "esp:D4",
+            "btn1:1.r",
+            "green",
+            []
+        ],
+        [
+            "btn1:2.r",
+            "esp:GND.1",
+            "black",
+            [
+                "h-57.6",
+                "v171.4"
+            ]
+        ],
+        [
+            "esp:D21",
+            "r1:1",
+            "orange",
+            []
+        ],
+        [
+            "r1:2",
+            "led1:A",
+            "orange",
+            []
+        ],
+        [
+            "led1:C",
+            "esp:GND.1",
+            "black",
+            [
+                "h-144",
+                "v0.4",
+                "v115.3"
+            ]
+        ],
+        [
+            "esp:D2",
+            "dht1:SDA",
+            "orange",
+            [
+                "h0"
+            ]
+        ],
+        [
+            "dht1:GND",
+            "esp:GND.1",
+            "black",
+            [
+                "v0"
+            ]
+        ],
+        [
+            "dht1:VCC",
+            "esp:3V3",
+            "red",
+            [
+                "v0"
+            ]
+        ]
+    ],
+    "dependencies": {}
+}
